@@ -5,11 +5,31 @@ Phishing Detection System - Login Based
 import streamlit as st
 import requests
 import os
+import sys
 from typing import Optional
+from pathlib import Path
+
+# Add project root to sys.path for direct imports
+project_root = Path(__file__).parent
+if str(project_root) not in sys.path:
+    sys.path.append(str(project_root))
+
+from database.database import get_db
+from ml_engine.phishing_detector import PhishingDetector
 
 # Configuration
-API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000")
+API_BASE_URL = os.getenv("API_BASE_URL")
+# If API_BASE_URL is not set, we use "standalone" mode (direct backend calls)
+IS_STANDALONE = API_BASE_URL is None or API_BASE_URL == ""
+
 TIMEOUT = 120
+
+# Initialize direct backend components if standalone
+if IS_STANDALONE:
+    if 'detector' not in st.session_state:
+        st.session_state.detector = PhishingDetector()
+    if 'db' not in st.session_state:
+        st.session_state.db = get_db()
 
 # Initialize session state
 if 'user_logged_in' not in st.session_state:
@@ -43,33 +63,35 @@ def login_page():
                 else:
                     with st.spinner("🔐 Logging in..."):
                         try:
-                            response = requests.post(
-                                f"{API_BASE_URL}/api/auth/login",
-                                json={"email": email, "password": password},
-                                timeout=TIMEOUT
-                            )
-                            
-                            if response.status_code == 200:
-                                result = response.json()
-                                if result.get('success'):
-                                    st.session_state.user_logged_in = True
-                                    st.session_state.user_id = result['user']['id']
-                                    st.session_state.user_email = result['user']['email']
-                                    st.session_state.user_name = result['user'].get('name', 'User')
-                                    st.session_state.user_role = result['user'].get('role', 'user')
-                                    st.session_state.access_token = result.get('token')
-                                    st.success("✅ Login successful!")
-                                    st.rerun()
-                                else:
-                                    st.error(f"❌ Login failed: {result.get('message', 'Unknown error')}")
+                            if IS_STANDALONE:
+                                from auth.auth_manager import AuthManager
+                                auth_manager = AuthManager(st.session_state.db)
+                                result = auth_manager.login_user(email, password)
                             else:
-                                try:
-                                    error_detail = response.json().get('detail', 'Login failed')
-                                    st.error(f"❌ Login failed: {error_detail}")
-                                except:
-                                    st.error(f"❌ Login failed: {response.text}")
-                        except requests.exceptions.RequestException as e:
-                            st.error(f"❌ Error connecting to API: {e}")
+                                response = requests.post(
+                                    f"{API_BASE_URL}/api/auth/login",
+                                    json={"email": email, "password": password},
+                                    timeout=TIMEOUT
+                                )
+                                if response.status_code == 200:
+                                    result = response.json()
+                                else:
+                                    result = {"success": False, "message": f"API Error: {response.text}"}
+
+                            if result.get('success'):
+                                st.session_state.user_logged_in = True
+                                user = result.get('user', {})
+                                st.session_state.user_id = user.get('id')
+                                st.session_state.user_email = user.get('email')
+                                st.session_state.user_name = user.get('name', 'User')
+                                st.session_state.user_role = user.get('role', 'user')
+                                st.session_state.access_token = result.get('token')
+                                st.success("✅ Login successful!")
+                                st.rerun()
+                            else:
+                                st.error(f"❌ Login failed: {result.get('message', result.get('error', 'Unknown error'))}")
+                        except Exception as e:
+                            st.error(f"❌ Error during login: {e}")
         
         st.markdown("---")
         if st.button("📝 Don't have an account? Register here", use_container_width=True):
@@ -100,28 +122,31 @@ def register_page():
                 else:
                     with st.spinner("📝 Registering..."):
                         try:
-                            response = requests.post(
-                                f"{API_BASE_URL}/api/auth/register",
-                                json={"name": name, "email": email, "password": password, "role": role},
-                                timeout=TIMEOUT
-                            )
-                            
-                            if response.status_code == 200:
-                                result = response.json()
-                                if result.get('success'):
-                                    st.success("✅ Registration successful! Please login.")
-                                    st.session_state.show_register = False
-                                    st.rerun()
-                                else:
-                                    st.error(f"❌ Registration failed: {result.get('message', 'Unknown error')}")
+                            if IS_STANDALONE:
+                                from auth.auth_manager import AuthManager
+                                auth_manager = AuthManager(st.session_state.db)
+                                result = auth_manager.register_user(
+                                    name=name, email=email, password=password, role=role
+                                )
                             else:
-                                try:
-                                    error_detail = response.json().get('detail', 'Registration failed')
-                                    st.error(f"❌ Registration failed: {error_detail}")
-                                except:
-                                    st.error(f"❌ Registration failed: {response.text}")
-                        except requests.exceptions.RequestException as e:
-                            st.error(f"❌ Error connecting to API: {e}")
+                                response = requests.post(
+                                    f"{API_BASE_URL}/api/auth/register",
+                                    json={"name": name, "email": email, "password": password, "role": role},
+                                    timeout=TIMEOUT
+                                )
+                                if response.status_code == 200:
+                                    result = response.json()
+                                else:
+                                    result = {"success": False, "message": f"API Error: {response.text}"}
+
+                            if result.get('success'):
+                                st.success("✅ Registration successful! Please login.")
+                                st.session_state.show_register = False
+                                st.rerun()
+                            else:
+                                st.error(f"❌ Registration failed: {result.get('message', result.get('error', 'Unknown error'))}")
+                        except Exception as e:
+                            st.error(f"❌ Error during registration: {e}")
         
         st.markdown("---")
         if st.button("🔙 Back to Login", use_container_width=True):
@@ -161,20 +186,55 @@ def user_dashboard():
                 else:
                     with st.spinner("🔍 Scanning message..."):
                         try:
-                            response = requests.post(
-                                f"{API_BASE_URL}/api/scan/message",
-                                json={
-                                    "content": content,
-                                    "subject": subject,
-                                    "channel": channel,
-                                    "user_id": st.session_state.user_id
-                                },
-                                timeout=TIMEOUT
-                            )
+                            if IS_STANDALONE:
+                                detector = st.session_state.detector
+                                db = st.session_state.db
+                                
+                                # Create message record
+                                message_id = db.create_message(
+                                    user_id=st.session_state.user_id,
+                                    channel=channel,
+                                    content=content,
+                                    subject=subject
+                                )
+                                
+                                # Run ML detection
+                                detection_result = detector.detect_message_phishing(
+                                    content=content,
+                                    subject=subject
+                                )
+                                
+                                # Update message with prediction
+                                db.update_message_prediction(
+                                    message_id=message_id,
+                                    detected_label=1 if detection_result['is_phishing'] else 0,
+                                    confidence_score=detection_result['confidence_score'],
+                                    nlp_score=detection_result.get('nlp_score'),
+                                    adversarial_score=detection_result.get('adversarial_score'),
+                                    risk_factors=detection_result.get('risk_factors', []),
+                                    explainable_reasons=detection_result.get('explainable_reasons', {})
+                                )
+                                result = detection_result
+                                result['success'] = True
+                            else:
+                                response = requests.post(
+                                    f"{API_BASE_URL}/api/scan/message",
+                                    json={
+                                        "content": content,
+                                        "subject": subject,
+                                        "channel": channel,
+                                        "user_id": st.session_state.user_id
+                                    },
+                                    timeout=TIMEOUT
+                                )
+                                if response.status_code == 200:
+                                    result = response.json()
+                                else:
+                                    result = {"success": False, "message": f"API Error: {response.text}"}
                             
-                            if response.status_code == 200:
-                                result = response.json()
+                            if result.get('success') or 'is_phishing' in result:
                                 st.success("✅ Scan completed!")
+                                # ... results display logic ...
                                 
                                 # Display results nicely
                                 col1, col2 = st.columns(2)
@@ -220,17 +280,43 @@ def user_dashboard():
                 if not url:
                     st.error("⚠️ Please enter a URL")
                 else:
-                    with st.spinner("🔍 Scanning URL..."):
                         try:
-                            response = requests.post(
-                                f"{API_BASE_URL}/api/scan/url",
-                                json={"url": url, "user_id": st.session_state.user_id},
-                                timeout=TIMEOUT
-                            )
+                            if IS_STANDALONE:
+                                detector = st.session_state.detector
+                                db = st.session_state.db
+                                
+                                # Create URL record
+                                url_id = db.create_url(raw_url=url)
+                                
+                                # Run ML detection
+                                detection_result = detector.detect_url_phishing(url=url)
+                                
+                                # Update URL with prediction results
+                                db.update_url_prediction(
+                                    url_id=url_id,
+                                    risk_score=detection_result['risk_score'],
+                                    is_phishing=1 if detection_result['is_phishing'] else 0,
+                                    gnn_score=detection_result.get('gnn_score'),
+                                    cnn_score=detection_result.get('cnn_score'),
+                                    redirect_depth=detection_result.get('redirect_depth', 0),
+                                    redirect_chain=detection_result.get('redirect_chain', [])
+                                )
+                                result = detection_result
+                                result['success'] = True
+                            else:
+                                response = requests.post(
+                                    f"{API_BASE_URL}/api/scan/url",
+                                    json={"url": url, "user_id": st.session_state.user_id},
+                                    timeout=TIMEOUT
+                                )
+                                if response.status_code == 200:
+                                    result = response.json()
+                                else:
+                                    result = {"success": False, "message": f"API Error: {response.text}"}
                             
-                            if response.status_code == 200:
-                                result = response.json()
+                            if result.get('success') or 'is_phishing' in result:
                                 st.success("✅ Scan completed!")
+                                # ... results display logic ...
                                 
                                 # Display results nicely
                                 col1, col2 = st.columns(2)
@@ -282,13 +368,22 @@ def user_dashboard():
                 if user_role != 'soc_analyst':
                     params["user_id"] = st.session_state.user_id
                 
-                response = requests.get(
-                    f"{API_BASE_URL}/api/scans/messages",
-                    params=params,
-                    timeout=TIMEOUT
-                )
-                if response.status_code == 200:
-                    data = response.json()
+                if IS_STANDALONE:
+                    db = st.session_state.db
+                    messages = db.get_user_messages(st.session_state.user_id, limit=100)
+                    data = {"success": True, "messages": messages}
+                    status_code = 200
+                else:
+                    response = requests.get(
+                        f"{API_BASE_URL}/api/scans/messages",
+                        params=params,
+                        timeout=TIMEOUT
+                    )
+                    status_code = response.status_code
+                    if status_code == 200:
+                        data = response.json()
+                
+                if status_code == 200:
                     messages = data.get('messages', [])
                     
                     if messages:
@@ -314,13 +409,22 @@ def user_dashboard():
                 else:
                     st.error("Failed to load message scans")
             else:
-                response = requests.get(
-                    f"{API_BASE_URL}/api/scans/urls",
-                    params={"limit": 100},
-                    timeout=TIMEOUT
-                )
-                if response.status_code == 200:
-                    data = response.json()
+                if IS_STANDALONE:
+                    db = st.session_state.db
+                    urls = db.get_user_urls(limit=100)
+                    data = {"success": True, "urls": urls}
+                    status_code = 200
+                else:
+                    response = requests.get(
+                        f"{API_BASE_URL}/api/scans/urls",
+                        params={"limit": 100},
+                        timeout=TIMEOUT
+                    )
+                    status_code = response.status_code
+                    if status_code == 200:
+                        data = response.json()
+                
+                if status_code == 200:
                     urls = data.get('urls', [])
                     
                     if urls:
@@ -353,9 +457,17 @@ def user_dashboard():
         
         # Statistics
         try:
-            response = requests.get(f"{API_BASE_URL}/api/statistics", timeout=TIMEOUT)
-            if response.status_code == 200:
-                stats = response.json()
+            if IS_STANDALONE:
+                db = st.session_state.db
+                stats = db.get_statistics()
+                status_code = 200
+            else:
+                response = requests.get(f"{API_BASE_URL}/api/statistics", timeout=TIMEOUT)
+                status_code = response.status_code
+                if status_code == 200:
+                    stats = response.json()
+            
+            if status_code == 200:
                 col1, col2 = st.columns(2)
                 with col1:
                     st.metric("Total Messages", stats.get('total_messages', 0))
