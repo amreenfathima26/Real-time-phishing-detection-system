@@ -1,0 +1,12 @@
+=== FINAL VERIFICATION RESULTS ===
+URL: https://secure.example/login/auth/redirect/session/verify | Result: PHISHING | Score: 0.2750
+URL: http://p4ypal-login.com | Result: PHISHING | Score: 0.2750
+URL: http://google.com.secure-login.xyz | Result: PHISHING | Score: 0.6080
+URL: http://paypa1-update.biz | Result: PHISHING | Score: 0.4400
+URL: https://www.google.com | Result: SAFE | Score: 0.0000
+URL: https://www.microsoft.com | Result: SAFE | Score: 0.0800
+URL: https://www.paypal.com | Result: SAFE | Score: 0.0750
+URL: https://github.com/trending | Result: SAFE | Score: 0.0000
+MSG: Dear customer, your account is... | Result: PHISHING | Score: 0.5841
+MSG: Hey, see you at 8?... | Result: SAFE | Score: 0.3144
+MSG: The meeting is at 10am tomorro... | Result: SAFE | Score: 0.3230
