@@ -31,8 +31,10 @@ class Database:
         
         if self.db_type == "sqlite":
             self.db_path = Path(__file__).parent.parent / "phishing_detection.db"
+            self.placeholder = "?"
             self._ensure_database_exists()
         else:
+            self.placeholder = "%s"
             print(f"✅ Using cloud {self.db_type} database.")
 
     def _ensure_database_exists(self):
@@ -129,7 +131,7 @@ class Database:
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
-                "INSERT INTO users (name, email, password_hash, role) VALUES (?, ?, ?, ?)",
+                f"INSERT INTO users (name, email, password_hash, role) VALUES ({self.placeholder}, {self.placeholder}, {self.placeholder}, {self.placeholder})",
                 (name, email, password_hash, role)
             )
             return cursor.lastrowid
@@ -138,21 +140,21 @@ class Database:
         """Get user by email"""
         with self.get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT * FROM users WHERE email = ?", (email,))
+            cursor.execute(f"SELECT * FROM users WHERE email = {self.placeholder}", (email,))
             return self._row_to_dict(cursor.fetchone())
     
     def get_user_by_id(self, user_id: int) -> Optional[Dict]:
         """Get user by ID"""
         with self.get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT * FROM users WHERE id = ?", (user_id,))
+            cursor.execute(f"SELECT * FROM users WHERE id = {self.placeholder}", (user_id,))
             return self._row_to_dict(cursor.fetchone())
     
     def update_last_login(self, user_id: int):
         """Update user last login"""
         with self.get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = ?", (user_id,))
+            cursor.execute(f"UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = {self.placeholder}", (user_id,))
     
     # Message Operations
     def create_message(self, user_id: Optional[int], channel: str, content: str,
@@ -162,8 +164,8 @@ class Database:
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
-                """INSERT INTO messages (user_id, channel, content, subject, sender, recipient)
-                   VALUES (?, ?, ?, ?, ?, ?)""",
+                f"""INSERT INTO messages (user_id, channel, content, subject, sender, recipient)
+                   VALUES ({self.placeholder}, {self.placeholder}, {self.placeholder}, {self.placeholder}, {self.placeholder}, {self.placeholder})""",
                 (user_id, channel, content, subject, sender, recipient)
             )
             return cursor.lastrowid
@@ -177,9 +179,9 @@ class Database:
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
-                """UPDATE messages SET detected_label = ?, confidence_score = ?,
-                   nlp_score = ?, adversarial_score = ?, risk_factors = ?, explainable_reasons = ?
-                   WHERE id = ?""",
+                f"""UPDATE messages SET detected_label = {self.placeholder}, confidence_score = {self.placeholder},
+                   nlp_score = {self.placeholder}, adversarial_score = {self.placeholder}, risk_factors = {self.placeholder}, explainable_reasons = {self.placeholder}
+                   WHERE id = {self.placeholder}""",
                 (detected_label, confidence_score, nlp_score, adversarial_score,
                  json.dumps(risk_factors) if risk_factors else None,
                  json.dumps(explainable_reasons) if explainable_reasons else None,
@@ -193,8 +195,8 @@ class Database:
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
-                """INSERT INTO urls (raw_url, expanded_url, final_url, domain_id)
-                   VALUES (?, ?, ?, ?)""",
+                f"""INSERT INTO urls (raw_url, expanded_url, final_url, domain_id)
+                   VALUES ({self.placeholder}, {self.placeholder}, {self.placeholder}, {self.placeholder})""",
                 (raw_url, expanded_url, final_url, domain_id)
             )
             return cursor.lastrowid
@@ -206,9 +208,9 @@ class Database:
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
-                """UPDATE urls SET risk_score = ?, is_phishing = ?, gnn_score = ?,
-                   cnn_score = ?, redirect_depth = ?, redirect_chain = ?, updated_at = CURRENT_TIMESTAMP
-                   WHERE id = ?""",
+                f"""UPDATE urls SET risk_score = {self.placeholder}, is_phishing = {self.placeholder}, gnn_score = {self.placeholder},
+                   cnn_score = {self.placeholder}, redirect_depth = {self.placeholder}, redirect_chain = {self.placeholder}, updated_at = CURRENT_TIMESTAMP
+                   WHERE id = {self.placeholder}""",
                 (risk_score, is_phishing, gnn_score, cnn_score, redirect_depth,
                  json.dumps(redirect_chain) if redirect_chain else None, url_id)
             )
@@ -219,12 +221,12 @@ class Database:
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
-                """SELECT id, channel, content, subject, sender, detected_label, 
+                f"""SELECT id, channel, content, subject, sender, detected_label, 
                    confidence_score, created_at 
                    FROM messages 
-                   WHERE user_id = ? 
+                   WHERE user_id = {self.placeholder} 
                    ORDER BY created_at DESC 
-                   LIMIT ?""",
+                   LIMIT {self.placeholder}""",
                 (user_id, limit)
             )
             results = self._rows_to_dict_list(cursor.fetchall())
@@ -250,20 +252,20 @@ class Database:
                 # For now, URLs don't have user_id in params, but schema might not link it properly in all ops
                 # Assuming query logic is same as before
                 cursor.execute(
-                    """SELECT id, raw_url, risk_score, is_phishing, gnn_score, 
+                    f"""SELECT id, raw_url, risk_score, is_phishing, gnn_score, 
                        cnn_score, redirect_depth, created_at 
                        FROM urls 
                        ORDER BY created_at DESC 
-                       LIMIT ?""",
+                       LIMIT {self.placeholder}""",
                     (limit,)
                 )
             else:
                 cursor.execute(
-                    """SELECT id, raw_url, risk_score, is_phishing, gnn_score, 
+                    f"""SELECT id, raw_url, risk_score, is_phishing, gnn_score, 
                        cnn_score, redirect_depth, created_at 
                        FROM urls 
                        ORDER BY created_at DESC 
-                       LIMIT ?""",
+                       LIMIT {self.placeholder}""",
                     (limit,)
                 )
             results = self._rows_to_dict_list(cursor.fetchall())
@@ -282,8 +284,8 @@ class Database:
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
-                """INSERT INTO training_batches (batch_type, model_type, status, started_at)
-                   VALUES (?, ?, ?, CURRENT_TIMESTAMP)""",
+                f"""INSERT INTO training_batches (batch_type, model_type, status, started_at)
+                   VALUES ({self.placeholder}, {self.placeholder}, {self.placeholder}, CURRENT_TIMESTAMP)""",
                 (batch_type, model_type, status)
             )
             return cursor.lastrowid
@@ -300,26 +302,26 @@ class Database:
         params = []
         
         if status:
-            updates.append("status = ?")
+            updates.append(f"status = {self.placeholder}")
             params.append(status)
         if samples_count is not None:
-            updates.append("samples_count = ?")
+            updates.append(f"samples_count = {self.placeholder}")
             params.append(samples_count)
         if csv_samples is not None:
-            updates.append("csv_samples = ?")
+            updates.append(f"csv_samples = {self.placeholder}")
             params.append(csv_samples)
         if db_samples is not None:
-            updates.append("db_samples = ?")
+            updates.append(f"db_samples = {self.placeholder}")
             params.append(db_samples)
         if accuracy_before is not None:
-            updates.append("accuracy_before = ?")
+            updates.append(f"accuracy_before = {self.placeholder}")
             params.append(accuracy_before)
         if accuracy_after is not None:
-            updates.append("accuracy_after = ?")
+            updates.append(f"accuracy_after = {self.placeholder}")
             params.append(accuracy_after)
             updates.append("completed_at = CURRENT_TIMESTAMP")
         if error_message:
-            updates.append("error_message = ?")
+            updates.append(f"error_message = {self.placeholder}")
             params.append(error_message)
         
         if updates:
@@ -327,7 +329,7 @@ class Database:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute(
-                    f"UPDATE training_batches SET {', '.join(updates)} WHERE id = ?",
+                    f"UPDATE training_batches SET {', '.join(updates)} WHERE id = {self.placeholder}",
                     params
                 )
     
@@ -340,13 +342,13 @@ class Database:
             # Deactivate other versions of same type
             if is_active:
                 cursor.execute(
-                    "UPDATE model_versions SET is_active = 0 WHERE model_type = ?",
+                    f"UPDATE model_versions SET is_active = 0 WHERE model_type = {self.placeholder}",
                     (model_type,)
                 )
             cursor.execute(
-                """INSERT INTO model_versions (model_type, version, accuracy, "precision", 
+                f"""INSERT INTO model_versions (model_type, version, accuracy, "precision", 
                    recall, f1_score, training_samples, model_path, is_active, deployed_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)""",
+                   VALUES ({self.placeholder}, {self.placeholder}, {self.placeholder}, {self.placeholder}, {self.placeholder}, {self.placeholder}, {self.placeholder}, {self.placeholder}, {self.placeholder}, CURRENT_TIMESTAMP)""",
                 (model_type, version, accuracy, precision, recall, f1_score,
                  training_samples, model_path, 1 if is_active else 0)
             )
@@ -357,7 +359,7 @@ class Database:
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
-                "SELECT * FROM model_versions WHERE model_type = ? AND is_active = 1 ORDER BY deployed_at DESC LIMIT 1",
+                f"SELECT * FROM model_versions WHERE model_type = {self.placeholder} AND is_active = 1 ORDER BY deployed_at DESC LIMIT 1",
                 (model_type,)
             )
             return self._row_to_dict(cursor.fetchone())
